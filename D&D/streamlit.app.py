@@ -15,6 +15,40 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- Słownik teł ---
+BACKGROUNDS = {
+    "karczma": "https://images.unsplash.com/photo-1543007168-5fa6b7c33a40?q=80&w=2574&auto=format&fit=crop",
+    "las": "https://images.unsplash.com/photo-1448375240586-882707db888b?q=80&w=2670&auto=format&fit=crop",
+    "jaskinia": "https://images.unsplash.com/photo-1566364435372-ef3157a43414?q=80&w=2574&auto=format&fit=crop",
+    "zamek": "https://images.unsplash.com/photo-1524398505234-95269435b434?q=80&w=2670&auto=format&fit=crop",
+    "miasto": "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?q=80&w=2744&auto=format&fit=crop",
+    "default": "https://www.transparenttextures.com/patterns/dark-denim-3.png"
+}
+
+def set_background(keyword):
+    """Ustawia dynamiczne tło aplikacji."""
+    image_url = BACKGROUNDS.get(keyword, BACKGROUNDS["default"])
+    css = f"""
+    <style>
+    .stApp {{
+        background-image: url("{image_url}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }}
+    /* Dodajemy półprzezroczyste tło dla lepszej czytelności */
+    [data-testid="stSidebar"], .main .block-container {{
+        background-color: rgba(14, 17, 23, 0.85); /* Ciemne tło z przezroczystością */
+        backdrop-filter: blur(5px); /* Efekt rozmycia tła */
+        border-radius: 10px;
+        padding: 1rem;
+    }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+
 # --- 2. Połączenie z Firebase ---
 @st.cache_resource
 def get_db_connection():
@@ -44,6 +78,24 @@ for key in ["player_name", "character_exists", "game_id"]:
 # --- 5. Funkcje pomocnicze ---
 def generate_game_id(length=6):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+def parse_response_from_dm(text):
+    """Parsuje odpowiedź od MG, wyciągając narrację, prompt obrazu i słowo kluczowe tła."""
+    narrative = text
+    img_prompt = None
+    bg_keyword = None
+
+    img_match = re.search(r'\[IMG: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
+    if img_match:
+        img_prompt = img_match.group(1).strip()
+        narrative = re.sub(r'\[IMG: .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE)
+
+    bg_match = re.search(r'\[TLO: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
+    if bg_match:
+        bg_keyword = bg_match.group(1).strip().lower()
+        narrative = re.sub(r'\[TLO: .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE)
+        
+    return narrative.strip(), img_prompt, bg_keyword
 
 def parse_character_sheet(sheet_text):
     character = {}
@@ -80,10 +132,9 @@ def create_game():
         "created_at": firestore.SERVER_TIMESTAMP,
         "active": True,
         "is_typing": None,
-        "scene_image_url": "https://placehold.co/1024x1024/0E1117/FFFFFF?text=Przygoda+si%C4%99+zaczyna...&font=raleway"
+        "scene_image_url": "https://placehold.co/1024x1024/0E1117/FFFFFF?text=Przygoda+si%C4%99+zaczyna...&font=raleway",
+        "background_keyword": "default"
     })
-    
-    # Po stworzeniu gry, od razu do niej dołącz
     join_game(game_id)
 
 def join_game(game_id):
@@ -92,13 +143,12 @@ def join_game(game_id):
         st.error("Gra o podanym ID nie istnieje.")
         return
 
-    # Pobierz globalną postać i zapisz ją w grze z pełnym HP
     player_global_ref = db.collection("players").document(st.session_state.player_name).get()
     if player_global_ref.exists:
         player_data = player_global_ref.to_dict()
         game_player_ref = game_ref.collection("players").document(st.session_state.player_name)
         game_player_ref.set({
-            "current_hp": player_data.get("punkty_życia", "100"), # Start z pełnym HP
+            "current_hp": player_data.get("punkty_życia", "100"),
             "joined_at": firestore.SERVER_TIMESTAMP
         })
         st.session_state.game_id = game_id
@@ -126,7 +176,6 @@ def generate_character(concept):
                     portrait_url = generate_image(char_data['portrait_prompt'], size="1024x1024")
                     char_data['portrait_url'] = portrait_url or "https://placehold.co/512x512/333/FFF?text=Brak+Portretu"
                 
-                # Zapisz postać w globalnej kolekcji 'players'
                 player_ref = db.collection("players").document(st.session_state.player_name)
                 player_ref.set(char_data)
                 st.session_state.character_exists = True
@@ -152,7 +201,7 @@ def send_message(content, is_action=True):
         game_ref.update({"is_typing": "Mistrz Gry"})
         history_query = messages_ref.order_by("timestamp", direction=firestore.Query.ASCENDING).limit(20)
         
-        system_prompt = "Jesteś Mistrzem Gry D&D. Prowadź narrację dla grupy. Po każdej swojej odpowiedzi, dodaj na samym końcu tag `[IMG: ...]` z opisem sceny po angielsku, w stylu 'epic fantasy art, ...'."
+        system_prompt = "Jesteś Mistrzem Gry D&D. Prowadź narrację dla grupy. Po każdej swojej odpowiedzi, dodaj na samym końcu tag `[IMG: ...]` z opisem sceny po angielsku, w stylu 'epic fantasy art, ...' ORAZ tag `[TLO: ...]` z jednym słowem kluczowym opisującym lokację (np. karczma, las, jaskinia, zamek, miasto)."
         messages_for_ai = [{"role": "system", "content": system_prompt}]
         for doc in history_query.stream():
             msg = doc.to_dict()
@@ -162,8 +211,13 @@ def send_message(content, is_action=True):
         try:
             response = openai.chat.completions.create(model="gpt-4-turbo", messages=messages_for_ai, temperature=0.9)
             dm_response_raw = response.choices[0].message.content
-            narrative, img_prompt = (re.match(r"(.*)\[IMG: (.*?)\]", dm_response_raw, re.DOTALL).groups()) if re.search(r'\[IMG: .*?\]', dm_response_raw) else (dm_response_raw, None)
-            messages_ref.add({"role": "assistant", "content": narrative.strip(), "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "Mistrz Gry"})
+            narrative, img_prompt, bg_keyword = parse_response_from_dm(dm_response_raw)
+            
+            messages_ref.add({"role": "assistant", "content": narrative, "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "Mistrz Gry"})
+            
+            if bg_keyword:
+                game_ref.update({"background_keyword": bg_keyword})
+
             if img_prompt:
                 with st.spinner("MG maluje scenę..."):
                     scene_url = generate_image(img_prompt)
@@ -175,7 +229,6 @@ def send_message(content, is_action=True):
 
 # --- 7. Interfejs Użytkownika (GUI) ---
 
-# --- Ekran logowania gracza ---
 if not st.session_state.player_name:
     st.title("✨ Witaj w Świecie Przygód D&D ✨")
     st.header("Przedstaw się, aby rozpocząć")
@@ -191,7 +244,6 @@ if not st.session_state.player_name:
             st.warning("Podaj swoje imię.")
     st.stop()
 
-# --- Ekran tworzenia postaci (jeśli nie istnieje) ---
 if st.session_state.player_name and not st.session_state.character_exists:
     st.title(f"Witaj, {st.session_state.player_name}!")
     st.header("Stwórz swoją pierwszą postać")
@@ -209,7 +261,6 @@ if st.session_state.player_name and not st.session_state.character_exists:
             generate_character(random.choice(concepts))
     st.stop()
 
-# --- Lobby Gier (po zalogowaniu i stworzeniu postaci) ---
 if st.session_state.player_name and st.session_state.character_exists and not st.session_state.game_id:
     st.title(f"Witaj z powrotem, {st.session_state.player_name}!")
     st.header("Wybierz swoją przygodę")
@@ -226,11 +277,11 @@ if st.session_state.player_name and st.session_state.character_exists and not st
             else: st.warning("Wpisz ID gry, aby dołączyć.")
     st.stop()
 
-
 # --- Główny Ekran Gry ---
 game_doc_ref = db.collection("games").document(st.session_state.game_id)
 game_data = game_doc_ref.get().to_dict()
 is_typing_by = game_data.get("is_typing")
+set_background(game_data.get("background_keyword", "default"))
 
 st.sidebar.title("Panel Gry")
 st.sidebar.markdown(f"**ID Gry:** `{st.session_state.game_id}`")
@@ -242,8 +293,6 @@ game_players_ref = game_doc_ref.collection("players").stream()
 for game_player_doc in game_players_ref:
     player_name = game_player_doc.id
     game_player_data = game_player_doc.to_dict()
-    
-    # Pobierz globalne dane postaci
     player_global_data = db.collection("players").document(player_name).get().to_dict() or {}
 
     with st.sidebar.expander(f"**{player_name}** - {player_global_data.get('imię', 'Brak imienia')}"):
@@ -251,7 +300,6 @@ for game_player_doc in game_players_ref:
         st.write(f"**Klasa:** {player_global_data.get('klasa', '?')}")
         st.write(f"**Rasa:** {player_global_data.get('rasa', '?')}")
         
-        # Edytowalne HP (zapisywane w grze)
         hp_key = f"hp_{player_name}_{st.session_state.game_id}"
         current_hp = int(game_player_data.get('current_hp', 0))
         new_hp = st.number_input("Punkty Życia", value=current_hp, key=hp_key, step=1)
