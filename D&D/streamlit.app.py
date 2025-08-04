@@ -108,29 +108,32 @@ def generate_game_id(length=6):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 def parse_response_from_dm(text):
-    narrative, img_prompt, bg_keyword, map_prompt, quest_update = text, None, None, None, None
-    
+    narrative = text
+    img_prompt, bg_keyword, map_prompt, quest_update = None, None, None, None
+    loot_items = []
+
+    # Wyciąganie tagów za pomocą re.findall
     img_match = re.search(r'\[IMG: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    if img_match:
-        img_prompt = img_match.group(1).strip()
-        narrative = re.sub(r'\[IMG: .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE)
+    if img_match: img_prompt = img_match.group(1).strip()
 
     bg_match = re.search(r'\[TLO: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    if bg_match:
-        bg_keyword = bg_match.group(1).strip().lower()
-        narrative = re.sub(r'\[TLO: .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE)
-        
+    if bg_match: bg_keyword = bg_match.group(1).strip().lower()
+
     map_match = re.search(r'\[MAPA: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    if map_match:
-        map_prompt = map_match.group(1).strip()
-        narrative = re.sub(r'\[MAPA: .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE)
+    if map_match: map_prompt = map_match.group(1).strip()
 
     quest_match = re.search(r'\[ZADANIE: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    if quest_match:
-        quest_update = quest_match.group(1).strip()
-        narrative = re.sub(r'\[ZADANIE: .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE)
+    if quest_match: quest_update = quest_match.group(1).strip()
+    
+    # Nowy parser dla łupów
+    loot_matches = re.findall(r'\[LOOT: (.*?);(.*?);(.*?)\]', text, re.DOTALL | re.IGNORECASE)
+    for match in loot_matches:
+        loot_items.append({"player": match[0].strip(), "item": match[1].strip(), "desc": match[2].strip()})
 
-    return narrative.strip(), img_prompt, bg_keyword, map_prompt, quest_update
+    # Czyszczenie narracji ze wszystkich tagów
+    narrative = re.sub(r'\[(IMG|TLO|MAPA|ZADANIE|LOOT): .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE).strip()
+    
+    return narrative, img_prompt, bg_keyword, map_prompt, quest_update, loot_items
 
 def parse_character_sheet(sheet_text):
     character = {}
@@ -216,7 +219,7 @@ def send_message(content, is_action=True):
         game_ref.update({"is_typing": "Mistrz Gry"})
         history_query = messages_ref.order_by("timestamp", direction=firestore.Query.ASCENDING).limit(20)
         
-        system_prompt = "Jesteś Mistrzem Gry D&D. Prowadź narrację. Po każdej odpowiedzi dodaj tagi: `[IMG: opis sceny po angielsku]`, `[TLO: jedno słowo kluczowe lokacji]`, `[ZADANIE: krótki opis aktualnego celu misji]`. Jeśli to początek przygody, dodaj też tag `[MAPA: opis mapy świata w stylu fantasy]`."
+        system_prompt = "Jesteś Mistrzem Gry D&D. Prowadź narrację. Po każdej odpowiedzi dodaj tagi: `[IMG: opis sceny]`, `[TLO: słowo kluczowe lokacji]`, `[ZADANIE: opis celu misji]`. Jeśli to początek przygody, dodaj też tag `[MAPA: opis mapy]`. Aby przyznać przedmiot graczowi, użyj tagu `[LOOT: imie_gracza;nazwa_przedmiotu;opis_przedmiotu]`."
         messages_for_ai = [{"role": "system", "content": system_prompt}]
         for doc in history_query.stream():
             msg = doc.to_dict()
@@ -225,10 +228,17 @@ def send_message(content, is_action=True):
         try:
             response = openai.chat.completions.create(model="gpt-4-turbo", messages=messages_for_ai, temperature=0.9)
             dm_response_raw = response.choices[0].message.content
-            narrative, img_prompt, bg_keyword, map_prompt, quest_update = parse_response_from_dm(dm_response_raw)
+            narrative, img_prompt, bg_keyword, map_prompt, quest_update, loot_items = parse_response_from_dm(dm_response_raw)
             messages_ref.add({"role": "assistant", "content": narrative, "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "Mistrz Gry"})
+            
             if bg_keyword: game_ref.update({"background_keyword": bg_keyword})
             if quest_update: game_ref.update({"quest_log": quest_update})
+            
+            for loot in loot_items:
+                player_inventory_ref = db.collection("players").document(loot["player"]).collection("inventory")
+                player_inventory_ref.add({"item_name": loot["item"], "description": loot["desc"]})
+                messages_ref.add({"role": "assistant", "content": f"*{loot['player']} otrzymuje: {loot['item']}!*", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
+
             if img_prompt:
                 with st.spinner("MG maluje scenę..."):
                     scene_url = generate_image(img_prompt)
@@ -249,7 +259,6 @@ def leave_game():
 
 # --- 7. GŁÓWNA FUNKCJA WYŚWIETLAJĄCA ---
 def main_gui():
-    # --- Ekran logowania gracza ---
     if not st.session_state.player_name:
         set_background_video("default")
         st.title("✨ Witaj w Świecie Przygód D&D ✨")
@@ -263,7 +272,6 @@ def main_gui():
                 st.rerun()
         return
 
-    # --- Ekran tworzenia postaci (jeśli nie istnieje) ---
     if not st.session_state.character_exists:
         set_background_video("default")
         st.title(f"Witaj, {st.session_state.player_name}!")
@@ -281,7 +289,6 @@ def main_gui():
                 generate_character(random.choice(concepts))
         return
 
-    # --- Lobby Gier (po zalogowaniu i stworzeniu postaci) ---
     if not st.session_state.game_id:
         set_background_video("default")
         st.title(f"Witaj z powrotem, {st.session_state.player_name}!")
@@ -297,15 +304,10 @@ def main_gui():
                 if join_id: join_game(join_id.upper())
         return
 
-    # --- Główny Ekran Gry ---
     game_doc_ref = db.collection("games").document(st.session_state.game_id)
     game_data = game_doc_ref.get().to_dict()
-
     if not game_data:
-        st.warning("Wczytywanie danych gry... Proszę czekać.")
-        time.sleep(2)
-        st.rerun()
-        return
+        st.warning("Wczytywanie danych gry..."); time.sleep(2); st.rerun(); return
 
     is_typing_by = game_data.get("is_typing")
     set_background_video(game_data.get("background_keyword", "default"))
@@ -319,6 +321,10 @@ def main_gui():
     
     st.sidebar.subheader("📜 Dziennik Zadań")
     st.sidebar.info(game_data.get("quest_log", "Brak aktywnego zadania."))
+    st.sidebar.markdown("---")
+
+    with st.sidebar.expander("🗺️ Pokaż Mapę Świata"):
+        st.image(game_data.get("map_image_url", ""), use_container_width=True)
     st.sidebar.markdown("---")
 
     st.sidebar.subheader("Drużyna")
@@ -336,7 +342,32 @@ def main_gui():
             if new_hp != current_hp:
                 update_player_hp(st.session_state.game_id, player_name, new_hp)
                 st.toast(f"Zaktualizowano HP dla {player_global_data.get('imię', '')}!")
-            st.write(f"**Historia:** {player_global_data.get('historia', '?')}")
+            
+            # Nowa sekcja Ekwipunku
+            st.write("**Ekwipunek:**")
+            inventory_ref = db.collection("players").document(player_name).collection("inventory").stream()
+            inventory_items = list(inventory_ref)
+            if not inventory_items:
+                st.caption("Pusto")
+            else:
+                for item_doc in inventory_items:
+                    item_data = item_doc.to_dict()
+                    item_name = item_data.get('item_name', 'Nieznany przedmiot')
+                    item_desc = item_data.get('description', 'Brak opisu.')
+                    
+                    item_cols = st.columns([3, 1, 1])
+                    with item_cols[0]:
+                        st.markdown(f"**{item_name}**")
+                        st.caption(item_desc)
+                    with item_cols[1]:
+                        if st.button("Użyj", key=f"use_{item_doc.id}", use_container_width=True):
+                            send_message(f"[Używa: {item_name}]", is_action=True)
+                            st.rerun()
+                    with item_cols[2]:
+                        if st.button("Wyrzuć", key=f"drop_{item_doc.id}", use_container_width=True):
+                            db.collection("players").document(player_name).collection("inventory").document(item_doc.id).delete()
+                            send_message(f"[Wyrzuca: {item_name}]", is_action=False)
+                            st.rerun()
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🎲 Rzut Kością")
@@ -348,23 +379,22 @@ def main_gui():
         send_message(dice_roll_content, is_action=False)
         st.rerun()
 
-    tab1, tab2, tab3 = st.tabs(["📜 Kronika", "🎨 Scena", "🗺️ Mapa"])
-    with tab1:
+    col1, col2 = st.columns([2, 1.2])
+    with col1:
+        st.header("📜 Kronika Przygody")
         messages_query = game_doc_ref.collection("messages").order_by("timestamp", direction=firestore.Query.ASCENDING)
         chat_container = st.container()
         with chat_container:
             for doc in messages_query.stream():
                 msg = doc.to_dict()
-                if 'role' in msg and msg['role'] in ['user', 'assistant']:
-                    with st.chat_message(msg['role']):
+                if 'role' in msg and msg['role'] in ['user', 'assistant', 'system']:
+                    with st.chat_message(msg.get('role', 'user')):
                         st.write(f"**{msg.get('player_name', 'Nieznany gracz')}**")
                         st.markdown(msg.get('content', ''))
-    with tab2:
+    with col2:
+        st.header("🎨 Wizualizacja Sceny")
         st.image(game_data.get("scene_image_url", ""), use_container_width=True)
         st.caption("Obraz wygenerowany przez AI na podstawie opisu Mistrza Gry.")
-    with tab3:
-        st.image(game_data.get("map_image_url", ""), use_container_width=True)
-        st.caption("Mapa świata wygenerowana na początku przygody.")
 
     placeholder_text = f"{is_typing_by} wykonuje ruch..." if is_typing_by else "Co robisz dalej?"
     if prompt := st.chat_input(placeholder_text, disabled=(is_typing_by is not None)):
@@ -374,6 +404,5 @@ def main_gui():
     time.sleep(10)
     st.rerun()
 
-# Uruchom główną funkcję GUI
 if __name__ == "__main__":
     main_gui()
