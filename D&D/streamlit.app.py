@@ -43,14 +43,19 @@ def set_background_video(keyword):
         min-width: 100%; 
         min-height: 100%;
         z-index: -1;
-        filter: brightness(0.4);
+        filter: brightness(0.5) blur(2px); /* Przyciemnienie i lekkie rozmycie tła */
     }}
     [data-testid="stSidebar"], .main .block-container {{
-        background-color: rgba(14, 17, 23, 0.85);
-        backdrop-filter: blur(10px);
+        background-color: rgba(14, 17, 23, 0.75); /* Zwiększona przezroczystość */
+        backdrop-filter: blur(10px); /* Efekt "oszronionej szyby" */
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 10px;
         padding: 1rem;
+    }}
+    /* Dodatkowe wyróżnienie dla samych wiadomości na czacie */
+    [data-testid="stChatMessage"] {{
+        background-color: rgba(30, 35, 45, 0.9);
+        border-radius: 10px;
     }}
     </style>
     <video autoplay loop muted playsinline id="bg-video">
@@ -103,7 +108,7 @@ def generate_game_id(length=6):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 def parse_response_from_dm(text):
-    narrative, img_prompt, bg_keyword, map_prompt = text, None, None, None
+    narrative, img_prompt, bg_keyword, map_prompt, quest_update = text, None, None, None, None
     
     img_match = re.search(r'\[IMG: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
     if img_match:
@@ -120,7 +125,12 @@ def parse_response_from_dm(text):
         map_prompt = map_match.group(1).strip()
         narrative = re.sub(r'\[MAPA: .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE)
 
-    return narrative.strip(), img_prompt, bg_keyword, map_prompt
+    quest_match = re.search(r'\[ZADANIE: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
+    if quest_match:
+        quest_update = quest_match.group(1).strip()
+        narrative = re.sub(r'\[ZADANIE: .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE)
+
+    return narrative.strip(), img_prompt, bg_keyword, map_prompt, quest_update
 
 def parse_character_sheet(sheet_text):
     character = {}
@@ -157,7 +167,8 @@ def create_game():
         "active": True, "is_typing": None,
         "scene_image_url": "https://placehold.co/1024x1024/0E1117/FFFFFF?text=Przygoda+si%C4%99+zaczyna...&font=raleway",
         "map_image_url": "https://placehold.co/1024x1024/0E1117/FFFFFF?text=Mapa+niezbadanych+krain...&font=raleway",
-        "background_keyword": "default"
+        "background_keyword": "default",
+        "quest_log": "Twoja przygoda jeszcze się nie rozpoczęła. Porozmawiaj z Mistrzem Gry."
     })
     join_game(game_id)
 
@@ -205,7 +216,7 @@ def send_message(content, is_action=True):
         game_ref.update({"is_typing": "Mistrz Gry"})
         history_query = messages_ref.order_by("timestamp", direction=firestore.Query.ASCENDING).limit(20)
         
-        system_prompt = "Jesteś Mistrzem Gry D&D. Prowadź narrację. Po każdej odpowiedzi dodaj tag `[IMG: opis sceny po angielsku]`, `[TLO: jedno słowo kluczowe lokacji]`. Jeśli to początek przygody, dodaj też tag `[MAPA: opis mapy świata w stylu fantasy]`."
+        system_prompt = "Jesteś Mistrzem Gry D&D. Prowadź narrację. Po każdej odpowiedzi dodaj tagi: `[IMG: opis sceny po angielsku]`, `[TLO: jedno słowo kluczowe lokacji]`, `[ZADANIE: krótki opis aktualnego celu misji]`. Jeśli to początek przygody, dodaj też tag `[MAPA: opis mapy świata w stylu fantasy]`."
         messages_for_ai = [{"role": "system", "content": system_prompt}]
         for doc in history_query.stream():
             msg = doc.to_dict()
@@ -214,9 +225,10 @@ def send_message(content, is_action=True):
         try:
             response = openai.chat.completions.create(model="gpt-4-turbo", messages=messages_for_ai, temperature=0.9)
             dm_response_raw = response.choices[0].message.content
-            narrative, img_prompt, bg_keyword, map_prompt = parse_response_from_dm(dm_response_raw)
+            narrative, img_prompt, bg_keyword, map_prompt, quest_update = parse_response_from_dm(dm_response_raw)
             messages_ref.add({"role": "assistant", "content": narrative, "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "Mistrz Gry"})
             if bg_keyword: game_ref.update({"background_keyword": bg_keyword})
+            if quest_update: game_ref.update({"quest_log": quest_update})
             if img_prompt:
                 with st.spinner("MG maluje scenę..."):
                     scene_url = generate_image(img_prompt)
@@ -235,118 +247,133 @@ def leave_game():
     st.session_state.game_id = None
     st.rerun()
 
-# --- 7. Interfejs Użytkownika (GUI) ---
+# --- 7. GŁÓWNA FUNKCJA WYŚWIETLAJĄCA ---
+def main_gui():
+    # --- Ekran logowania gracza ---
+    if not st.session_state.player_name:
+        set_background_video("default")
+        st.title("✨ Witaj w Świecie Przygód D&D ✨")
+        st.header("Przedstaw się, aby rozpocząć")
+        player_name_input = st.text_input("Wpisz swoje imię (będzie to Twój unikalny login)", key="player_login")
+        if st.button("Zaloguj się", use_container_width=True, type="primary"):
+            if player_name_input:
+                st.session_state.player_name = player_name_input
+                if db.collection("players").document(player_name_input).get().exists:
+                    st.session_state.character_exists = True
+                st.rerun()
+        return
 
-if not st.session_state.player_name:
-    set_background_video("default")
-    st.title("✨ Witaj w Świecie Przygód D&D ✨")
-    st.header("Przedstaw się, aby rozpocząć")
-    player_name_input = st.text_input("Wpisz swoje imię (będzie to Twój unikalny login)", key="player_login")
-    if st.button("Zaloguj się", use_container_width=True, type="primary"):
-        if player_name_input:
-            st.session_state.player_name = player_name_input
-            if db.collection("players").document(player_name_input).get().exists:
-                st.session_state.character_exists = True
-            st.rerun()
-    st.stop()
+    # --- Ekran tworzenia postaci (jeśli nie istnieje) ---
+    if not st.session_state.character_exists:
+        set_background_video("default")
+        st.title(f"Witaj, {st.session_state.player_name}!")
+        st.header("Stwórz swoją pierwszą postać")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.info("Opisz w kilku słowach, kim chcesz być. AI zajmie się resztą!")
+            character_concept = st.text_area("Np. 'Mroczny elf skrytobójca z dwoma sztyletami'", height=150)
+            if st.button("Generuj Postać wg opisu", type="primary", use_container_width=True):
+                if character_concept: generate_character(character_concept)
+        with col2:
+            st.info("...albo zdaj się na los!")
+            if st.button("Losuj Postać!", use_container_width=True):
+                concepts = ["a brave dwarven warrior", "a wise old human wizard", "a sneaky halfling rogue", "a noble elf paladin", "a chaotic gnome artificer"]
+                generate_character(random.choice(concepts))
+        return
 
-if st.session_state.player_name and not st.session_state.character_exists:
-    set_background_video("default")
-    st.title(f"Witaj, {st.session_state.player_name}!")
-    st.header("Stwórz swoją pierwszą postać")
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.info("Opisz w kilku słowach, kim chcesz być. AI zajmie się resztą!")
-        character_concept = st.text_area("Np. 'Mroczny elf skrytobójca z dwoma sztyletami'", height=150)
-        if st.button("Generuj Postać wg opisu", type="primary", use_container_width=True):
-            if character_concept: generate_character(character_concept)
-    with col2:
-        st.info("...albo zdaj się na los!")
-        if st.button("Losuj Postać!", use_container_width=True):
-            concepts = ["a brave dwarven warrior", "a wise old human wizard", "a sneaky halfling rogue", "a noble elf paladin", "a chaotic gnome artificer"]
-            generate_character(random.choice(concepts))
-    st.stop()
+    # --- Lobby Gier (po zalogowaniu i stworzeniu postaci) ---
+    if not st.session_state.game_id:
+        set_background_video("default")
+        st.title(f"Witaj z powrotem, {st.session_state.player_name}!")
+        st.header("Wybierz swoją przygodę")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Stwórz Nową Grę")
+            if st.button("Stwórz Grę", use_container_width=True, type="primary"): create_game()
+        with col2:
+            st.subheader("Dołącz do Gry")
+            join_id = st.text_input("Wpisz ID Gry", max_chars=6)
+            if st.button("Dołącz do Gry", use_container_width=True):
+                if join_id: join_game(join_id.upper())
+        return
 
-if st.session_state.player_name and st.session_state.character_exists and not st.session_state.game_id:
-    set_background_video("default")
-    st.title(f"Witaj z powrotem, {st.session_state.player_name}!")
-    st.header("Wybierz swoją przygodę")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Stwórz Nową Grę")
-        if st.button("Stwórz Grę", use_container_width=True, type="primary"): create_game()
-    with col2:
-        st.subheader("Dołącz do Gry")
-        join_id = st.text_input("Wpisz ID Gry", max_chars=6)
-        if st.button("Dołącz do Gry", use_container_width=True):
-            if join_id: join_game(join_id.upper())
-    st.stop()
+    # --- Główny Ekran Gry ---
+    game_doc_ref = db.collection("games").document(st.session_state.game_id)
+    game_data = game_doc_ref.get().to_dict()
 
-# --- Główny Ekran Gry ---
-game_doc_ref = db.collection("games").document(st.session_state.game_id)
-game_data = game_doc_ref.get().to_dict()
-is_typing_by = game_data.get("is_typing")
-set_background_video(game_data.get("background_keyword", "default"))
+    if not game_data:
+        st.warning("Wczytywanie danych gry... Proszę czekać.")
+        time.sleep(2)
+        st.rerun()
+        return
 
-st.sidebar.title("Panel Gry")
-st.sidebar.markdown(f"**ID Gry:** `{st.session_state.game_id}`")
-st.sidebar.markdown(f"**Jesteś zalogowany jako:** `{st.session_state.player_name}`")
-if st.sidebar.button("Wyjdź z gry", use_container_width=True):
-    leave_game()
-st.sidebar.markdown("---")
+    is_typing_by = game_data.get("is_typing")
+    set_background_video(game_data.get("background_keyword", "default"))
 
-st.sidebar.subheader("Drużyna")
-game_players_ref = game_doc_ref.collection("players").stream()
-for game_player_doc in game_players_ref:
-    player_name = game_player_doc.id
-    game_player_data = game_player_doc.to_dict()
-    player_global_data = db.collection("players").document(player_name).get().to_dict() or {}
-    with st.sidebar.expander(f"**{player_name}** - {player_global_data.get('imię', '')}"):
-        st.image(player_global_data.get('portrait_url', ''), use_container_width=True)
-        st.write(f"**Klasa:** {player_global_data.get('klasa', '?')}")
-        hp_key = f"hp_{player_name}_{st.session_state.game_id}"
-        current_hp = int(game_player_data.get('current_hp', 0))
-        new_hp = st.number_input("Punkty Życia", value=current_hp, key=hp_key, step=1)
-        if new_hp != current_hp:
-            update_player_hp(st.session_state.game_id, player_name, new_hp)
-            st.toast(f"Zaktualizowano HP dla {player_global_data.get('imię', '')}!")
-        st.write(f"**Historia:** {player_global_data.get('historia', '?')}")
+    st.sidebar.title("Panel Gry")
+    st.sidebar.markdown(f"**ID Gry:** `{st.session_state.game_id}`")
+    st.sidebar.markdown(f"**Jesteś zalogowany jako:** `{st.session_state.player_name}`")
+    if st.sidebar.button("Wyjdź z gry", use_container_width=True):
+        leave_game()
+    st.sidebar.markdown("---")
+    
+    st.sidebar.subheader("📜 Dziennik Zadań")
+    st.sidebar.info(game_data.get("quest_log", "Brak aktywnego zadania."))
+    st.sidebar.markdown("---")
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("🎲 Rzut Kością")
-dice_type = st.sidebar.selectbox("Typ kości", ["k20", "k12", "k10", "k8", "k6", "k4"])
-if st.sidebar.button(f"Rzuć {dice_type}!"):
-    play_dice_sound()
-    result = random.randint(1, int(dice_type[1:]))
-    dice_roll_content = f"Rzucam kością {dice_type} i wyrzucam **{result}**."
-    send_message(dice_roll_content, is_action=False)
+    st.sidebar.subheader("Drużyna")
+    game_players_ref = game_doc_ref.collection("players").stream()
+    for game_player_doc in game_players_ref:
+        player_name = game_player_doc.id
+        game_player_data = game_player_doc.to_dict()
+        player_global_data = db.collection("players").document(player_name).get().to_dict() or {}
+        with st.sidebar.expander(f"**{player_name}** - {player_global_data.get('imię', '')}"):
+            st.image(player_global_data.get('portrait_url', ''), use_container_width=True)
+            st.write(f"**Klasa:** {player_global_data.get('klasa', '?')}")
+            hp_key = f"hp_{player_name}_{st.session_state.game_id}"
+            current_hp = int(game_player_data.get('current_hp', 0))
+            new_hp = st.number_input("Punkty Życia", value=current_hp, key=hp_key, step=1)
+            if new_hp != current_hp:
+                update_player_hp(st.session_state.game_id, player_name, new_hp)
+                st.toast(f"Zaktualizowano HP dla {player_global_data.get('imię', '')}!")
+            st.write(f"**Historia:** {player_global_data.get('historia', '?')}")
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🎲 Rzut Kością")
+    dice_type = st.sidebar.selectbox("Typ kości", ["k20", "k12", "k10", "k8", "k6", "k4"])
+    if st.sidebar.button(f"Rzuć {dice_type}!"):
+        play_dice_sound()
+        result = random.randint(1, int(dice_type[1:]))
+        dice_roll_content = f"Rzucam kością {dice_type} i wyrzucam **{result}**."
+        send_message(dice_roll_content, is_action=False)
+        st.rerun()
+
+    tab1, tab2, tab3 = st.tabs(["📜 Kronika", "🎨 Scena", "🗺️ Mapa"])
+    with tab1:
+        messages_query = game_doc_ref.collection("messages").order_by("timestamp", direction=firestore.Query.ASCENDING)
+        chat_container = st.container()
+        with chat_container:
+            for doc in messages_query.stream():
+                msg = doc.to_dict()
+                if 'role' in msg and msg['role'] in ['user', 'assistant']:
+                    with st.chat_message(msg['role']):
+                        st.write(f"**{msg.get('player_name', 'Nieznany gracz')}**")
+                        st.markdown(msg.get('content', ''))
+    with tab2:
+        st.image(game_data.get("scene_image_url", ""), use_container_width=True)
+        st.caption("Obraz wygenerowany przez AI na podstawie opisu Mistrza Gry.")
+    with tab3:
+        st.image(game_data.get("map_image_url", ""), use_container_width=True)
+        st.caption("Mapa świata wygenerowana na początku przygody.")
+
+    placeholder_text = f"{is_typing_by} wykonuje ruch..." if is_typing_by else "Co robisz dalej?"
+    if prompt := st.chat_input(placeholder_text, disabled=(is_typing_by is not None)):
+        send_message(prompt)
+        st.rerun()
+
+    time.sleep(10)
     st.rerun()
 
-# Nowy interfejs z zakładkami
-tab1, tab2, tab3 = st.tabs(["📜 Kronika", "🎨 Scena", "🗺️ Mapa"])
-
-with tab1:
-    messages_query = game_doc_ref.collection("messages").order_by("timestamp", direction=firestore.Query.ASCENDING)
-    chat_container = st.container()
-    with chat_container:
-        for doc in messages_query.stream():
-            msg = doc.to_dict()
-            if 'role' in msg and msg['role'] in ['user', 'assistant']:
-                with st.chat_message(msg['role']):
-                    st.write(f"**{msg.get('player_name', 'Nieznany gracz')}**")
-                    st.markdown(msg.get('content', ''))
-with tab2:
-    st.image(game_data.get("scene_image_url", ""), use_column_width=True)
-    st.caption("Obraz wygenerowany przez AI na podstawie opisu Mistrza Gry.")
-
-with tab3:
-    st.image(game_data.get("map_image_url", ""), use_column_width=True)
-    st.caption("Mapa świata wygenerowana na początku przygody.")
-
-placeholder_text = f"{is_typing_by} wykonuje ruch..." if is_typing_by else "Co robisz dalej?"
-if prompt := st.chat_input(placeholder_text, disabled=(is_typing_by is not None)):
-    send_message(prompt)
-    st.rerun()
-
-time.sleep(10)
-st.rerun()
+# Uruchom główną funkcję GUI
+if __name__ == "__main__":
+    main_gui()
