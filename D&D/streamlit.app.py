@@ -237,9 +237,12 @@ def send_message(content, is_action=True):
                 with st.spinner(f"AI tworzy postać {npc_data['name']}..."):
                     portrait_url = generate_image(npc_data['portrait_prompt'])
                     npc_data['portrait_url'] = portrait_url
-                    game_ref.collection("npcs").document(npc_data['name']).set(npc_data)
+                    sanitized_npc_name = re.sub(r'[/]', '-', npc_data['name'])
+                    game_ref.collection("npcs").document(sanitized_npc_name).set(npc_data)
             
-            for npc_name in removed_npcs: game_ref.collection("npcs").document(npc_name).delete()
+            for npc_name in removed_npcs: 
+                sanitized_npc_name = re.sub(r'[/]', '-', npc_name)
+                game_ref.collection("npcs").document(sanitized_npc_name).delete()
             
             for combat_update in combat_updates:
                 parts = combat_update.split(';')
@@ -359,7 +362,11 @@ def main_gui():
         for npc_doc in npcs_list:
             npc_data = npc_doc.to_dict()
             with st.sidebar.container():
-                st.image(npc_data.get('portrait_url', "https://placehold.co/512x512/333/FFF?text=Brak+Portretu"), use_container_width=True)
+                portrait_url = npc_data.get('portrait_url')
+                if isinstance(portrait_url, str) and portrait_url.startswith('http'):
+                    st.image(portrait_url, use_container_width=True)
+                else:
+                    st.image("https://placehold.co/512x512/333/FFF?text=Brak+Portretu", use_container_width=True)
                 st.write(f"**{npc_data.get('name')}**")
                 st.caption(npc_data.get('desc'))
                 if st.button(f"Porozmawiaj z {npc_data.get('name')}", key=f"talk_{npc_doc.id}", use_container_width=True):
