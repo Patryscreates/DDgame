@@ -206,7 +206,7 @@ def generate_character(concept):
             if char_data and all(k in char_data for k in ['imię', 'klasa', 'rasa', 'punkty_życia', 'historia', 'portrait_prompt']):
                 with st.spinner("AI maluje portret..."):
                     portrait_url = generate_image(char_data['portrait_prompt'])
-                    char_data['portrait_url'] = portrait_url # Może być None, obsłużymy to przy wyświetlaniu
+                    char_data['portrait_url'] = portrait_url
                 char_data['xp'] = 0 # Startowe XP
                 db.collection("players").document(st.session_state.player_name).set(char_data)
                 st.session_state.character_exists = True
@@ -348,13 +348,11 @@ def main_gui():
         game_player_data = game_player_doc.to_dict()
         player_global_data = db.collection("players").document(player_name).get().to_dict() or {}
         with st.sidebar.expander(f"**{player_name}** - {player_global_data.get('imię', '')}"):
-            # --- POCZĄTEK ZMIANY ---
             portrait_url = player_global_data.get('portrait_url')
-            if portrait_url:
+            if portrait_url and isinstance(portrait_url, str) and portrait_url.startswith('http'):
                 st.image(portrait_url, use_container_width=True)
             else:
                 st.image("https://placehold.co/512x512/333/FFF?text=Brak+Portretu", use_container_width=True)
-            # --- KONIEC ZMIANY ---
             st.write(f"**Klasa:** {player_global_data.get('klasa', '?')}")
             st.write(f"**XP:** {player_global_data.get('xp', 0)}")
             hp_key = f"hp_{player_name}_{st.session_state.game_id}"
