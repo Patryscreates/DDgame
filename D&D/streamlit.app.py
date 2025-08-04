@@ -11,7 +11,7 @@ import string
 # --- 1. Konfiguracja strony ---
 st.set_page_config(
     page_title="D&D Multiplayer",
-    page_icon="�",
+    page_icon="🎲",
     layout="wide"
 )
 
@@ -283,4 +283,3 @@ if prompt := st.chat_input("Co robisz dalej?"):
 # Automatyczne odświeżanie co 15 sekund, aby zobaczyć wiadomości innych graczy
 time.sleep(15)
 st.rerun()
-�
