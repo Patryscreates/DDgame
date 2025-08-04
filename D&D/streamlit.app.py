@@ -72,12 +72,16 @@ except (KeyError, FileNotFoundError):
 for key in ["player_name", "selected_character_name", "game_id"]:
     if key not in st.session_state: st.session_state[key] = None
 
+# --- 5. FUNKCJE POMOCNICZE ---
+
+def generate_game_id(length=6):
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
 def parse_response_from_dm(text):
     narrative = text
     img_prompt, bg_keyword, map_prompt, quest_update = None, None, None, None
     loot_items, xp_awards, choices, npcs, removed_npcs, combat_updates = [], [], [], [], [], []
     
-    # Używamy re.findall do znalezienia wszystkich tagów i re.sub do ich usunięcia na końcu
     tags_to_remove = []
     
     img_match = re.search(r'\[IMG: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
@@ -98,7 +102,9 @@ def parse_response_from_dm(text):
     for tag_type, pattern, storage in [("LOOT", r'\[LOOT: (.*?);(.*?);(.*?)\]', loot_items), ("XP", r'\[XP: (.*?);(\d+)\]', xp_awards), ("NPC", r'\[NPC: (.*?);(.*?);(.*?)\]', npcs), ("NPC_REMOVE", r'\[NPC_REMOVE: (.*?)\]', removed_npcs), ("WALKA", r'\[WALKA: (.*?)\]', combat_updates)]:
         matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
         for match in matches:
-            tags_to_remove.append(re.search(re.escape(match if isinstance(match, str) else match[0]), text).group(0))
+            full_tag_match = re.search(re.escape(match if isinstance(match, str) else match[0]), text)
+            if full_tag_match:
+                tags_to_remove.append(full_tag_match.group(0))
             if tag_type == "LOOT": storage.append({"player": match[0].strip(), "item": match[1].strip(), "desc": match[2].strip()})
             elif tag_type == "XP": storage.append({"player": match[0].strip(), "amount": int(match[1])})
             elif tag_type == "NPC": storage.append({"name": match[0].strip(), "desc": match[1].strip(), "portrait_prompt": match[2].strip()})
@@ -109,6 +115,20 @@ def parse_response_from_dm(text):
     
     return narrative.strip(), img_prompt, bg_keyword, map_prompt, quest_update, loot_items, xp_awards, choices, npcs, removed_npcs, combat_updates
 
+def parse_character_sheet(sheet_text):
+    character = {}
+    try:
+        for line in sheet_text.strip().split('\n'):
+            if ':' in line:
+                key, value = line.split(':', 1)
+                character[key.strip().lower().replace(" ", "_")] = value.strip()
+        portrait_match = re.search(r'\[PORTRET: (.*?)\]', sheet_text, re.IGNORECASE)
+        if portrait_match:
+            character['portrait_prompt'] = portrait_match.group(1)
+    except Exception:
+        return None
+    return character
+
 @st.cache_data(ttl=3600)
 def generate_image(prompt, size="1024x1024"):
     try:
@@ -117,8 +137,9 @@ def generate_image(prompt, size="1024x1024"):
     except Exception as e:
         return None
 
+# --- 6. Logika Gry ---
 def create_game():
-    game_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    game_id = generate_game_id()
     game_ref = db.collection("games").document(game_id)
     game_ref.set({
         "created_at": firestore.SERVER_TIMESTAMP, "active": True, "is_typing": None, "in_combat": False, "current_turn_index": 0,
@@ -187,7 +208,6 @@ def send_message(content, is_action=True):
             if choices: game_ref.update({"choices": choices})
             
             for loot in loot_items:
-                # Znajdź konto gracza na podstawie imienia postaci
                 game_players = game_ref.collection("players").stream()
                 for p in game_players:
                     if p.id == loot["player"]:
@@ -202,14 +222,15 @@ def send_message(content, is_action=True):
                     if p.id == xp["player"]:
                         player_account = p.to_dict().get("player_account")
                         char_ref = db.collection("players").document(player_account).collection("characters").document(xp["player"])
-                        char_ref.update({"xp": firestore.Increment(xp["amount"])})
-                        messages_ref.add({"role": "system", "content": f"*{xp['player']} otrzymuje {xp['amount']} PD!*", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
-                        char_doc = char_ref.get().to_dict()
-                        current_level, current_xp = char_doc.get("level", 1), char_doc.get("xp", 0)
-                        next_level = current_level + 1
-                        if next_level in XP_THRESHOLDS and current_xp >= XP_THRESHOLDS[next_level]:
-                            char_ref.update({"level": next_level})
-                            messages_ref.add({"role": "system", "content": f"🎉 **{xp['player']} awansuje na poziom {next_level}!** 🎉", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
+                        if char_ref.get().exists:
+                            char_ref.update({"xp": firestore.Increment(xp["amount"])})
+                            messages_ref.add({"role": "system", "content": f"*{xp['player']} otrzymuje {xp['amount']} PD!*", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
+                            char_doc = char_ref.get().to_dict()
+                            current_level, current_xp = char_doc.get("level", 1), char_doc.get("xp", 0)
+                            next_level = current_level + 1
+                            if next_level in XP_THRESHOLDS and current_xp >= XP_THRESHOLDS[next_level]:
+                                char_ref.update({"level": next_level})
+                                messages_ref.add({"role": "system", "content": f"🎉 **{xp['player']} awansuje na poziom {next_level}!** 🎉", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
                         break
             
             for npc_data in npcs:
