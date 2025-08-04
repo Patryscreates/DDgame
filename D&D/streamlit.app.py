@@ -387,7 +387,12 @@ def main_gui():
             st.progress(xp / xp_for_next_level if xp_for_next_level > 0 else 1.0, text=f"Poziom: {level} ({xp}/{xp_for_next_level} XP)")
             
             hp_key = f"hp_{char_name}_{st.session_state.game_id}"
-            current_hp = int(game_player_data.get('current_hp', 0))
+            current_hp_str = game_player_data.get('current_hp', '0')
+            try:
+                current_hp = int(current_hp_str)
+            except (ValueError, TypeError):
+                current_hp = 0 # Default to 0 if conversion fails
+            
             new_hp = st.number_input("Punkty Życia", value=current_hp, key=hp_key, step=1)
             if new_hp != current_hp:
                 update_player_hp(st.session_state.game_id, char_name, new_hp)
