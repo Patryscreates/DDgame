@@ -12,159 +12,102 @@ import base64
 
 # --- 1. Konfiguracja strony ---
 st.set_page_config(
-    page_title="D&D Multiplayer: Edycja Sztos",
-    page_icon="🔥",
+    page_title="D&D Multiplayer: Edycja Herosów",
+    page_icon="👑",
     layout="wide"
 )
 
 # --- Słownik teł wideo i muzyki ---
 AMBIANCE = {
-    "karczma": {
-        "video": "https://cdn.pixabay.com/video/2023/10/05/184813-873138840_large.mp4",
-        "music": "https://cdn.pixabay.com/download/audio/2022/08/03/audio_a705a48937.mp3"
-    },
-    "las": {
-        "video": "https://cdn.pixabay.com/video/2024/02/09/199582-911442728_large.mp4",
-        "music": "https://cdn.pixabay.com/download/audio/2022/05/17/audio_eb21b38a79.mp3"
-    },
-    "jaskinia": {
-        "video": "https://cdn.pixabay.com/video/2022/09/13/130113-750107243_large.mp4",
-        "music": "https://cdn.pixabay.com/download/audio/2022/03/15/audio_510b653225.mp3"
-    },
-    "walka": {
-        "video": "https://cdn.pixabay.com/video/2022/09/05/128189-747652290_large.mp4",
-        "music": "https://cdn.pixabay.com/download/audio/2022/08/27/audio_39289965d1.mp3"
-    },
-    "default": {
-        "video": "https://cdn.pixabay.com/video/2023/06/20/170942-838735238_large.mp4",
-        "music": "https://cdn.pixabay.com/download/audio/2022/10/18/audio_7303a72b8b.mp3"
-    }
+    "karczma": {"video": "https://cdn.pixabay.com/video/2023/10/05/184813-873138840_large.mp4", "music": "https://cdn.pixabay.com/download/audio/2022/08/03/audio_a705a48937.mp3"},
+    "las": {"video": "https://cdn.pixabay.com/video/2024/02/09/199582-911442728_large.mp4", "music": "https://cdn.pixabay.com/download/audio/2022/05/17/audio_eb21b38a79.mp3"},
+    "jaskinia": {"video": "https://cdn.pixabay.com/video/2022/09/13/130113-750107243_large.mp4", "music": "https://cdn.pixabay.com/download/audio/2022/03/15/audio_510b653225.mp3"},
+    "walka": {"video": "https://cdn.pixabay.com/video/2022/09/05/128189-747652290_large.mp4", "music": "https://cdn.pixabay.com/download/audio/2022/08/27/audio_39289965d1.mp3"},
+    "default": {"video": "https://cdn.pixabay.com/video/2023/06/20/170942-838735238_large.mp4", "music": "https://cdn.pixabay.com/download/audio/2022/10/18/audio_7303a72b8b.mp3"}
 }
 
 # --- Mechaniki Gry: Poziomy i Umiejętności ---
 XP_THRESHOLDS = {1: 0, 2: 300, 3: 900, 4: 2700, 5: 6500}
 CLASS_SKILLS = {
-    "Łotrzyk": {3: ["Atak z zaskoczenia"]},
-    "Mag": {3: ["Kula ognia"]},
-    "Wojownik": {3: ["Drugi oddech"]},
-    "Kleryk": {3: ["Leczenie ran"]}
+    "Łotrzyk": {3: ["Atak z zaskoczenia"]}, "Mag": {3: ["Kula ognia"]},
+    "Wojownik": {3: ["Drugi oddech"]}, "Kleryk": {3: ["Leczenie ran"]}
 }
 
 def set_ambiance(keyword):
     """Ustawia dynamiczne tło i muzykę."""
     ambiance_data = AMBIANCE.get(keyword, AMBIANCE["default"])
-    video_url = ambiance_data["video"]
-    music_url = ambiance_data["music"]
-    
+    video_url, music_url = ambiance_data["video"], ambiance_data["music"]
     audio_key = f"audio_{keyword}"
-
     ambiance_html = f"""
     <style>
     .stApp {{ background: #000; }}
-    #bg-video {{
-        position: fixed; right: 0; bottom: 0;
-        min-width: 100%; min-height: 100%;
-        z-index: -1;
-        filter: brightness(0.5) blur(2px);
-    }}
-    [data-testid="stSidebar"], .main .block-container {{
-        background-color: rgba(14, 17, 23, 0.75);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 10px; padding: 1rem;
-    }}
-    [data-testid="stChatMessage"] {{
-        background-color: rgba(30, 35, 45, 0.9);
-        border-radius: 10px;
-    }}
+    #bg-video {{ position: fixed; right: 0; bottom: 0; min-width: 100%; min-height: 100%; z-index: -1; filter: brightness(0.5) blur(2px); }}
+    [data-testid="stSidebar"], .main .block-container {{ background-color: rgba(14, 17, 23, 0.75); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 1rem; }}
+    [data-testid="stChatMessage"] {{ background-color: rgba(30, 35, 45, 0.9); border-radius: 10px; }}
     </style>
-    <video autoplay loop muted playsinline id="bg-video">
-        <source src="{video_url}" type="video/mp4">
-    </video>
-    <audio id="{audio_key}" src="{music_url}" autoplay loop>
-    </audio>
+    <video autoplay loop muted playsinline id="bg-video"><source src="{video_url}" type="video/mp4"></video>
+    <audio id="{audio_key}" src="{music_url}" autoplay loop></audio>
     """
     components.html(ambiance_html, height=0)
 
-
 def play_dice_sound():
-    """Odtwarza dźwięk rzutu kością za pomocą JS."""
-    sound_js = """
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-    <script>
-        const synth = new Tone.Synth().toDestination();
-        synth.triggerAttackRelease("C5", "16n", Tone.now());
-        synth.triggerAttackRelease("G4", "16n", Tone.now() + 0.1);
-    </script>
-    """
-    components.html(sound_js, height=0)
+    components.html("""<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script><script>const s=new Tone.Synth().toDestination();s.triggerAttackRelease("C5","16n",Tone.now()),s.triggerAttackRelease("G4","16n",Tone.now()+0.1);</script>""", height=0)
 
-# --- 2. Połączenie z Firebase ---
 @st.cache_resource
 def get_db_connection():
     try:
         creds_json = dict(st.secrets["firebase_credentials"])
         creds = service_account.Credentials.from_service_account_info(creds_json)
-        db = firestore.Client(credentials=creds, project=creds_json['project_id'])
-        return db
+        return firestore.Client(credentials=creds, project=creds_json['project_id'])
     except Exception as e:
         st.error(f"Błąd połączenia z Firebase: {e}"); st.stop()
 
 db = get_db_connection()
 
-# --- 3. Konfiguracja OpenAI ---
 try:
     openai.api_key = st.secrets["OPENAI_API_KEY"]
 except (KeyError, FileNotFoundError):
     st.error("Brak klucza API OpenAI."); st.stop()
 
-# --- 4. Inicjalizacja stanu sesji ---
-for key in ["player_name", "character_exists", "game_id"]:
+for key in ["player_name", "selected_character_name", "game_id"]:
     if key not in st.session_state: st.session_state[key] = None
-
-# --- 5. Funkcje pomocnicze ---
-def generate_game_id(length=6):
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 def parse_response_from_dm(text):
     narrative = text
     img_prompt, bg_keyword, map_prompt, quest_update = None, None, None, None
     loot_items, xp_awards, choices, npcs, removed_npcs, combat_updates = [], [], [], [], [], []
-
-    # Parser tagów
+    
+    # Używamy re.findall do znalezienia wszystkich tagów i re.sub do ich usunięcia na końcu
+    tags_to_remove = []
+    
     img_match = re.search(r'\[IMG: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    if img_match: img_prompt = img_match.group(1).strip()
+    if img_match: img_prompt = img_match.group(1).strip(); tags_to_remove.append(img_match.group(0))
 
     bg_match = re.search(r'\[TLO: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    if bg_match: bg_keyword = bg_match.group(1).strip().lower()
+    if bg_match: bg_keyword = bg_match.group(1).strip().lower(); tags_to_remove.append(bg_match.group(0))
 
     map_match = re.search(r'\[MAPA: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    if map_match: map_prompt = map_match.group(1).strip()
+    if map_match: map_prompt = map_match.group(1).strip(); tags_to_remove.append(map_match.group(0))
 
     quest_match = re.search(r'\[ZADANIE: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    if quest_match: quest_update = quest_match.group(1).strip()
+    if quest_match: quest_update = quest_match.group(1).strip(); tags_to_remove.append(quest_match.group(0))
     
-    loot_matches = re.findall(r'\[LOOT: (.*?);(.*?);(.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    for match in loot_matches: loot_items.append({"player": match[0].strip(), "item": match[1].strip(), "desc": match[2].strip()})
-
-    xp_matches = re.findall(r'\[XP: (.*?);(\d+)\]', text, re.DOTALL | re.IGNORECASE)
-    for match in xp_matches: xp_awards.append({"player": match[0].strip(), "amount": int(match[1])})
-        
     choice_match = re.search(r'\[WYBÓR: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    if choice_match: choices = [choice.strip().strip('"') for choice in choice_match.group(1).split(';')]
+    if choice_match: choices = [c.strip().strip('"') for c in choice_match.group(1).split(';')]; tags_to_remove.append(choice_match.group(0))
 
-    npc_matches = re.findall(r'\[NPC: (.*?);(.*?);(.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    for match in npc_matches: npcs.append({"name": match[0].strip(), "desc": match[1].strip(), "portrait_prompt": match[2].strip()})
-        
-    removed_npc_matches = re.findall(r'\[NPC_REMOVE: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    for match in removed_npc_matches: removed_npcs.append(match.strip())
+    for tag_type, pattern, storage in [("LOOT", r'\[LOOT: (.*?);(.*?);(.*?)\]', loot_items), ("XP", r'\[XP: (.*?);(\d+)\]', xp_awards), ("NPC", r'\[NPC: (.*?);(.*?);(.*?)\]', npcs), ("NPC_REMOVE", r'\[NPC_REMOVE: (.*?)\]', removed_npcs), ("WALKA", r'\[WALKA: (.*?)\]', combat_updates)]:
+        matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+        for match in matches:
+            tags_to_remove.append(re.search(re.escape(match if isinstance(match, str) else match[0]), text).group(0))
+            if tag_type == "LOOT": storage.append({"player": match[0].strip(), "item": match[1].strip(), "desc": match[2].strip()})
+            elif tag_type == "XP": storage.append({"player": match[0].strip(), "amount": int(match[1])})
+            elif tag_type == "NPC": storage.append({"name": match[0].strip(), "desc": match[1].strip(), "portrait_prompt": match[2].strip()})
+            elif tag_type == "NPC_REMOVE": storage.append(match.strip())
+            elif tag_type == "WALKA": storage.append(match.strip())
 
-    combat_matches = re.findall(r'\[WALKA: (.*?)\]', text, re.DOTALL | re.IGNORECASE)
-    for match in combat_matches: combat_updates.append(match.strip())
-
-    narrative = re.sub(r'\[(IMG|TLO|MAPA|ZADANIE|LOOT|XP|WYBÓR|NPC|NPC_REMOVE|WALKA): .*?\]', '', narrative, flags=re.DOTALL | re.IGNORECASE).strip()
+    for tag in set(tags_to_remove): narrative = narrative.replace(tag, '')
     
-    return narrative, img_prompt, bg_keyword, map_prompt, quest_update, loot_items, xp_awards, choices, npcs, removed_npcs, combat_updates
+    return narrative.strip(), img_prompt, bg_keyword, map_prompt, quest_update, loot_items, xp_awards, choices, npcs, removed_npcs, combat_updates
 
 @st.cache_data(ttl=3600)
 def generate_image(prompt, size="1024x1024"):
@@ -174,18 +117,14 @@ def generate_image(prompt, size="1024x1024"):
     except Exception as e:
         return None
 
-# --- 6. Logika Gry ---
 def create_game():
-    game_id = generate_game_id()
+    game_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     game_ref = db.collection("games").document(game_id)
     game_ref.set({
-        "created_at": firestore.SERVER_TIMESTAMP,
-        "active": True, "is_typing": None, "in_combat": False, "current_turn_index": 0,
+        "created_at": firestore.SERVER_TIMESTAMP, "active": True, "is_typing": None, "in_combat": False, "current_turn_index": 0,
         "scene_image_url": "https://placehold.co/1024x1024/0E1117/FFFFFF?text=Przygoda+si%C4%99+zaczyna...&font=raleway",
         "map_image_url": "https://placehold.co/1024x1024/0E1117/FFFFFF?text=Mapa+niezbadanych+krain...&font=raleway",
-        "background_keyword": "default",
-        "quest_log": "Twoja przygoda jeszcze się nie rozpoczęła.",
-        "choices": []
+        "background_keyword": "default", "quest_log": "Twoja przygoda jeszcze się nie rozpoczęła.", "choices": []
     })
     join_game(game_id)
 
@@ -193,11 +132,12 @@ def join_game(game_id):
     game_ref = db.collection("games").document(game_id)
     if not game_ref.get().exists:
         st.error("Gra o podanym ID nie istnieje."); return
-    player_global_ref = db.collection("players").document(st.session_state.player_name).get()
-    if player_global_ref.exists:
-        player_data = player_global_ref.to_dict()
-        game_player_ref = game_ref.collection("players").document(st.session_state.player_name)
-        game_player_ref.set({"current_hp": player_data.get("punkty_życia", "100"), "joined_at": firestore.SERVER_TIMESTAMP})
+    
+    char_ref = db.collection("players").document(st.session_state.player_name).collection("characters").document(st.session_state.selected_character_name).get()
+    if char_ref.exists:
+        char_data = char_ref.to_dict()
+        game_player_ref = game_ref.collection("players").document(st.session_state.selected_character_name)
+        game_player_ref.set({"current_hp": char_data.get("punkty_życia", "100"), "player_account": st.session_state.player_name, "joined_at": firestore.SERVER_TIMESTAMP})
         st.session_state.game_id = game_id
         st.rerun()
 
@@ -213,8 +153,8 @@ def generate_character(concept):
                     portrait_url = generate_image(char_data['portrait_prompt'])
                     char_data['portrait_url'] = portrait_url
                 char_data['xp'] = 0; char_data['level'] = 1
-                db.collection("players").document(st.session_state.player_name).set(char_data)
-                st.session_state.character_exists = True
+                db.collection("players").document(st.session_state.player_name).collection("characters").document(char_data['imię']).set(char_data)
+                st.session_state.selected_character_name = char_data['imię']
                 st.rerun()
             else:
                 st.error("Nie udało się wygenerować postaci. Spróbuj ponownie.")
@@ -224,14 +164,14 @@ def generate_character(concept):
 def send_message(content, is_action=True):
     game_ref = db.collection("games").document(st.session_state.game_id)
     messages_ref = game_ref.collection("messages")
-    game_ref.update({"is_typing": st.session_state.player_name, "choices": []})
-    messages_ref.add({"role": "user", "content": content, "timestamp": firestore.SERVER_TIMESTAMP, "player_name": st.session_state.player_name})
+    game_ref.update({"is_typing": st.session_state.selected_character_name, "choices": []})
+    messages_ref.add({"role": "user", "content": content, "timestamp": firestore.SERVER_TIMESTAMP, "player_name": st.session_state.selected_character_name})
     if not is_action:
         game_ref.update({"is_typing": None}); return
     with st.spinner("Mistrz Gry myśli..."):
         game_ref.update({"is_typing": "Mistrz Gry"})
         history_query = messages_ref.order_by("timestamp", direction=firestore.Query.ASCENDING).limit(20)
-        system_prompt = "Jesteś Mistrzem Gry D&D. Prowadź narrację. Używaj tagów: `[IMG: opis sceny]`, `[TLO: lokacja]`, `[ZADANIE: cel misji]`, `[WYBÓR: \"Opcja 1\"; \"Opcja 2\"]`, `[XP: gracz;ilość]`, `[LOOT: gracz;nazwa;opis]`, `[NPC: imię;opis;prompt portretu]`, `[NPC_REMOVE: imię]`. Aby rozpocząć walkę, użyj `[WALKA: START;potwór1;potwór2;...]`. Aby zakończyć `[WALKA: KONIEC]`. W walce, po akcji gracza, opisz co się stało i wykonaj ruch potwora."
+        system_prompt = "Jesteś Mistrzem Gry D&D. Prowadź narrację. Używaj tagów: `[IMG: opis sceny]`, `[TLO: lokacja]`, `[ZADANIE: cel misji]`, `[WYBÓR: \"Opcja 1\"; \"Opcja 2\"]`, `[XP: imie_postaci;ilość]`, `[LOOT: imie_postaci;nazwa;opis]`, `[NPC: imię;opis;prompt portretu]`, `[NPC_REMOVE: imię]`. Aby rozpocząć walkę, użyj `[WALKA: START;potwór1;potwór2;...]`. Aby zakończyć `[WALKA: KONIEC]`. W walce, po akcji gracza, opisz co się stało i wykonaj ruch potwora."
         messages_for_ai = [{"role": "system", "content": system_prompt}]
         for doc in history_query.stream():
             msg = doc.to_dict()
@@ -242,26 +182,36 @@ def send_message(content, is_action=True):
             dm_response_raw = response.choices[0].message.content
             narrative, img_prompt, bg_keyword, map_prompt, quest_update, loot_items, xp_awards, choices, npcs, removed_npcs, combat_updates = parse_response_from_dm(dm_response_raw)
             messages_ref.add({"role": "assistant", "content": narrative, "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "Mistrz Gry"})
-            
             if bg_keyword: game_ref.update({"background_keyword": bg_keyword})
             if quest_update: game_ref.update({"quest_log": quest_update})
             if choices: game_ref.update({"choices": choices})
             
             for loot in loot_items:
-                db.collection("players").document(loot["player"]).collection("inventory").add({"item_name": loot["item"], "description": loot["desc"]})
-                messages_ref.add({"role": "system", "content": f"*{loot['player']} otrzymuje: {loot['item']}!*", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
+                # Znajdź konto gracza na podstawie imienia postaci
+                game_players = game_ref.collection("players").stream()
+                for p in game_players:
+                    if p.id == loot["player"]:
+                        player_account = p.to_dict().get("player_account")
+                        db.collection("players").document(player_account).collection("characters").document(loot["player"]).collection("inventory").add({"item_name": loot["item"], "description": loot["desc"]})
+                        messages_ref.add({"role": "system", "content": f"*{loot['player']} otrzymuje: {loot['item']}!*", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
+                        break
             
             for xp in xp_awards:
-                player_ref = db.collection("players").document(xp["player"])
-                player_ref.update({"xp": firestore.Increment(xp["amount"])})
-                messages_ref.add({"role": "system", "content": f"*{xp['player']} otrzymuje {xp['amount']} PD!*", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
-                player_doc = player_ref.get().to_dict()
-                current_level, current_xp = player_doc.get("level", 1), player_doc.get("xp", 0)
-                next_level = current_level + 1
-                if next_level in XP_THRESHOLDS and current_xp >= XP_THRESHOLDS[next_level]:
-                    player_ref.update({"level": next_level})
-                    messages_ref.add({"role": "system", "content": f"🎉 **{xp['player']} awansuje na poziom {next_level}!** 🎉", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
-
+                game_players = game_ref.collection("players").stream()
+                for p in game_players:
+                    if p.id == xp["player"]:
+                        player_account = p.to_dict().get("player_account")
+                        char_ref = db.collection("players").document(player_account).collection("characters").document(xp["player"])
+                        char_ref.update({"xp": firestore.Increment(xp["amount"])})
+                        messages_ref.add({"role": "system", "content": f"*{xp['player']} otrzymuje {xp['amount']} PD!*", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
+                        char_doc = char_ref.get().to_dict()
+                        current_level, current_xp = char_doc.get("level", 1), char_doc.get("xp", 0)
+                        next_level = current_level + 1
+                        if next_level in XP_THRESHOLDS and current_xp >= XP_THRESHOLDS[next_level]:
+                            char_ref.update({"level": next_level})
+                            messages_ref.add({"role": "system", "content": f"🎉 **{xp['player']} awansuje na poziom {next_level}!** 🎉", "timestamp": firestore.SERVER_TIMESTAMP, "player_name": "System"})
+                        break
+            
             for npc_data in npcs:
                 with st.spinner(f"AI tworzy postać {npc_data['name']}..."):
                     portrait_url = generate_image(npc_data['portrait_prompt'])
@@ -295,8 +245,8 @@ def send_message(content, is_action=True):
             game_ref.update({"is_typing": None})
 
 def leave_game():
-    if st.session_state.game_id and st.session_state.player_name:
-        player_ref = db.collection("games").document(st.session_state.game_id).collection("players").document(st.session_state.player_name)
+    if st.session_state.game_id and st.session_state.selected_character_name:
+        player_ref = db.collection("games").document(st.session_state.game_id).collection("players").document(st.session_state.selected_character_name)
         if player_ref.get().exists: player_ref.delete()
     st.session_state.game_id = None
     st.rerun()
@@ -311,31 +261,37 @@ def main_gui():
         if st.button("Zaloguj się", use_container_width=True, type="primary"):
             if player_name_input:
                 st.session_state.player_name = player_name_input
-                if db.collection("players").document(player_name_input).get().exists:
-                    st.session_state.character_exists = True
                 st.rerun()
         return
 
-    if not st.session_state.character_exists:
+    char_collection_ref = db.collection("players").document(st.session_state.player_name).collection("characters")
+    characters = [doc.id for doc in char_collection_ref.stream()]
+
+    if not st.session_state.selected_character_name:
         set_ambiance("default")
         st.title(f"Witaj, {st.session_state.player_name}!")
-        st.header("Stwórz swoją pierwszą postać")
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.info("Opisz w kilku słowach, kim chcesz być. AI zajmie się resztą!")
-            character_concept = st.text_area("Np. 'Mroczny elf skrytobójca z dwoma sztyletami'", height=150)
-            if st.button("Generuj Postać wg opisu", type="primary", use_container_width=True):
+        st.header("Wybierz lub stwórz postać")
+        
+        if not characters:
+            st.info("Nie masz jeszcze żadnej postaci. Czas stworzyć swojego pierwszego bohatera!")
+        else:
+            st.subheader("Wybierz istniejącą postać:")
+            selected_char = st.selectbox("Twoi bohaterowie", characters)
+            if st.button("Graj jako " + selected_char, use_container_width=True, type="primary"):
+                st.session_state.selected_character_name = selected_char
+                st.rerun()
+        
+        st.markdown("---")
+        st.subheader("...lub stwórz nową:")
+        with st.expander("Kreator postaci"):
+            character_concept = st.text_area("Opisz w kilku słowach, kim chcesz być", height=100)
+            if st.button("Generuj Postać", use_container_width=True):
                 if character_concept: generate_character(character_concept)
-        with col2:
-            st.info("...albo zdaj się na los!")
-            if st.button("Losuj Postać!", use_container_width=True):
-                concepts = ["a brave dwarven warrior", "a wise old human wizard", "a sneaky halfling rogue", "a noble elf paladin", "a chaotic gnome artificer"]
-                generate_character(random.choice(concepts))
         return
 
     if not st.session_state.game_id:
         set_ambiance("default")
-        st.title(f"Witaj z powrotem, {st.session_state.player_name}!")
+        st.title(f"Grasz jako {st.session_state.selected_character_name}")
         st.header("Wybierz swoją przygodę")
         col1, col2 = st.columns(2)
         with col1:
@@ -346,6 +302,9 @@ def main_gui():
             join_id = st.text_input("Wpisz ID Gry", max_chars=6)
             if st.button("Dołącz do Gry", use_container_width=True):
                 if join_id: join_game(join_id.upper())
+        if st.button("Zmień postać"):
+            st.session_state.selected_character_name = None
+            st.rerun()
         return
 
     game_doc_ref = db.collection("games").document(st.session_state.game_id)
@@ -358,7 +317,7 @@ def main_gui():
 
     st.sidebar.title("Panel Gry")
     st.sidebar.markdown(f"**ID Gry:** `{st.session_state.game_id}`")
-    st.sidebar.markdown(f"**Jesteś zalogowany jako:** `{st.session_state.player_name}`")
+    st.sidebar.markdown(f"**Gracz:** `{st.session_state.player_name}`")
     if st.sidebar.button("Wyjdź z gry", use_container_width=True):
         leave_game()
     st.sidebar.markdown("---")
@@ -390,10 +349,11 @@ def main_gui():
     st.sidebar.subheader("Drużyna")
     game_players_ref = game_doc_ref.collection("players").stream()
     for game_player_doc in game_players_ref:
-        player_name = game_player_doc.id
+        char_name = game_player_doc.id
         game_player_data = game_player_doc.to_dict()
-        player_global_data = db.collection("players").document(player_name).get().to_dict() or {}
-        with st.sidebar.expander(f"**{player_name}** - {player_global_data.get('imię', '')}", expanded=player_name == st.session_state.player_name):
+        player_account = game_player_data.get("player_account")
+        player_global_data = db.collection("players").document(player_account).collection("characters").document(char_name).get().to_dict() or {}
+        with st.sidebar.expander(f"**{char_name}** ({player_account})", expanded=char_name == st.session_state.selected_character_name):
             portrait_url = player_global_data.get('portrait_url')
             if isinstance(portrait_url, str) and portrait_url.startswith('http'):
                 st.image(portrait_url, use_container_width=True)
@@ -405,12 +365,12 @@ def main_gui():
             xp_for_next_level = XP_THRESHOLDS.get(level + 1, xp)
             st.progress(xp / xp_for_next_level if xp_for_next_level > 0 else 1.0, text=f"Poziom: {level} ({xp}/{xp_for_next_level} XP)")
             
-            hp_key = f"hp_{player_name}_{st.session_state.game_id}"
+            hp_key = f"hp_{char_name}_{st.session_state.game_id}"
             current_hp = int(game_player_data.get('current_hp', 0))
             new_hp = st.number_input("Punkty Życia", value=current_hp, key=hp_key, step=1)
             if new_hp != current_hp:
-                update_player_hp(st.session_state.game_id, player_name, new_hp)
-                st.toast(f"Zaktualizowano HP dla {player_global_data.get('imię', '')}!")
+                update_player_hp(st.session_state.game_id, char_name, new_hp)
+                st.toast(f"Zaktualizowano HP dla {char_name}!")
             
             st.write("**Umiejętności:**")
             player_class = player_global_data.get('klasa')
@@ -421,11 +381,11 @@ def main_gui():
             if not player_skills: st.caption("Brak")
             else:
                 for skill in player_skills:
-                    if st.button(skill, key=f"skill_{skill}_{player_name}", use_container_width=True):
+                    if st.button(skill, key=f"skill_{skill}_{char_name}", use_container_width=True):
                         send_message(f"[Używa umiejętności: {skill}]"); st.rerun()
             
             st.write("**Ekwipunek:**")
-            inventory_ref = db.collection("players").document(player_name).collection("inventory").stream()
+            inventory_ref = db.collection("players").document(player_account).collection("characters").document(char_name).collection("inventory").stream()
             inventory_items = list(inventory_ref)
             if not inventory_items: st.caption("Pusto")
             else:
@@ -436,7 +396,7 @@ def main_gui():
                     if item_cols[1].button("Użyj", key=f"use_{item_doc.id}", use_container_width=True):
                         send_message(f"[Używa: {item_name}]", is_action=True); st.rerun()
                     if item_cols[2].button("Wyrzuć", key=f"drop_{item_doc.id}", use_container_width=True):
-                        db.collection("players").document(player_name).collection("inventory").document(item_doc.id).delete()
+                        db.collection("players").document(player_account).collection("characters").document(char_name).collection("inventory").document(item_doc.id).delete()
                         send_message(f"[Wyrzuca: {item_name}]", is_action=False); st.rerun()
 
     st.sidebar.markdown("---")
@@ -467,7 +427,7 @@ def main_gui():
         st.caption("Obraz wygenerowany przez AI na podstawie opisu Mistrza Gry.")
 
     choices = game_data.get("choices", [])
-    is_my_turn = (is_typing_by is None and not choices) or (is_typing_by is None and choices and st.session_state.player_name in [p.id for p in game_doc_ref.collection("players").stream()])
+    is_my_turn = (is_typing_by is None and not choices) or (is_typing_by is None and choices and st.session_state.selected_character_name in [p.id for p in game_doc_ref.collection("players").stream()])
 
     if choices:
         st.write("---")
